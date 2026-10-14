@@ -3,7 +3,7 @@ html, body {
     padding: 0;
     height: 100%;
     overflow: hidden;
-    background-color: #0d0d0d; /* matches your neon theme */
+    background-color: #0d0d0d; /* matches neon theme */
 }
 
 #gameCanvas {

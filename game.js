@@ -1,6 +1,6 @@
-// ======================================================
-// =============== CANVAS & CONTEXT SETUP ===============
-// ======================================================
+
+// ==== CANVAS & CONTEXT SETUP ====
+
 
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -9,9 +9,9 @@ canvas.width = 1280;
 canvas.height = 720;
 
 
-// ======================================================
-// ===================== ASSET LOADING ==================
-// ======================================================
+
+// ==== ASSET LOADING ====
+
 
 // ---- Player ----
 const playerImg = new Image();
@@ -56,6 +56,10 @@ checkpointImages[3].src = "assets/checkpoints/3.png";
 checkpointImages[4].src = "assets/checkpoints/4.png";
 checkpointImages[5].src = "assets/checkpoints/5.png";
 
+// ---- Checkpoint glow ring ----
+const checkpointRing = new Image();
+checkpointRing.src = "assets/checkpoints/ring.png";
+
 // ---- Sounds ----
 const checkpointSound = new Audio("assets/sounds/checkpoint.wav");
 const meowSound = new Audio("assets/sounds/meow.wav");
@@ -66,9 +70,9 @@ playlistSound.loop = true;
 playlistSound.volume = 0.4;
 
 
-// ======================================================
-// ===================== GAME STATE ======================
-// ======================================================
+
+// ==== GAME STATE ====
+
 
 let keys = {};
 let raceStarted = false;
@@ -83,15 +87,21 @@ let timerRunning = false;
 let raceComplete = false;
 let caught = false;
 
+let caughtOverlay = 0;
+let finishOverlay = 0;
+
 let redFlash = 0;
 
 // Fix autoplay issue
 let firstInteraction = false;
 
+// Global animation clock (used for pulses / bobbing)
+let clock = 0;
 
-// ======================================================
-// ===================== PLAYER SETUP ====================
-// ======================================================
+
+
+// ==== PLAYER SETUP ====
+
 
 const player = {
     x: 2054,
@@ -100,10 +110,13 @@ const player = {
     speed: 4
 };
 
+let playerFacing = 1;     // 1 = facing right, -1 = facing left
+let playerMoving = false;
 
-// ======================================================
-// ==================== PROFESSOR SETUP ==================
-// ======================================================
+
+
+// ==== PROFESSOR SETUP ====
+
 
 const professor = {
     x: 2326,
@@ -120,9 +133,9 @@ let profFrameInterval = 12;
 let profTeleportCooldown = 0;
 
 
-// ======================================================
-// ===================== CHECKPOINTS =====================
-// ======================================================
+
+// ==== CHECKPOINTS ====
+
 
 const checkpoints = [
     { name: "Start (Pecan Hall)", x: 1815, y: 2650, reached: false },
@@ -134,20 +147,32 @@ const checkpoints = [
 
 let currentCheckpoint = 0;
 
+// Neon palette to match the map art (cyan primary, pink accent)
+const CHECKPOINT_GLOW = "#28f5ff";
+const CHECKPOINT_GLOW_NEAR = "#ff3fb0";
 
-// ======================================================
-// ====================== CAMERA =========================
-// ======================================================
+// Minimap
+const MAP_WORLD_SIZE = 3000; // campus-map.png is 3000x3000
+const MINI_SIZE = 190;
+const MINI_MARGIN = 24;
+
+
+
+// ==== CAMERA ====
+
 
 const camera = {
     x: 0,
     y: 0
 };
 
+let shakeTime = 0;
+let shakeStrength = 0;
 
-// ======================================================
-// ===================== INPUT HANDLING ==================
-// ======================================================
+
+
+// ==== INPUT HANDLING ====
+
 
 document.addEventListener("keydown", (e) => {
     keys[e.key] = true;
@@ -168,9 +193,9 @@ document.addEventListener("keyup", (e) => {
 });
 
 
-// ======================================================
-// ===================== COUNTDOWN LOGIC =================
-// ======================================================
+
+// ==== COUNTDOWN LOGIC ====
+
 
 function updateCountdown() {
     if (!raceStarted) {
@@ -189,23 +214,24 @@ function updateCountdown() {
 }
 
 
-// ======================================================
-// ===================== PLAYER MOVEMENT =================
-// ======================================================
+// ==== PLAYER MOVEMENT ====
+
 
 function updatePlayer() {
+    playerMoving = false;
+
     if (!raceStarted || raceComplete || caught) return;
 
-    if (keys["ArrowUp"] || keys["w"]) player.y -= player.speed;
-    if (keys["ArrowDown"] || keys["s"]) player.y += player.speed;
-    if (keys["ArrowLeft"] || keys["a"]) player.x -= player.speed;
-    if (keys["ArrowRight"] || keys["d"]) player.x += player.speed;
+    if (keys["ArrowUp"] || keys["w"]) { player.y -= player.speed; playerMoving = true; }
+    if (keys["ArrowDown"] || keys["s"]) { player.y += player.speed; playerMoving = true; }
+    if (keys["ArrowLeft"] || keys["a"]) { player.x -= player.speed; playerMoving = true; playerFacing = -1; }
+    if (keys["ArrowRight"] || keys["d"]) { player.x += player.speed; playerMoving = true; playerFacing = 1; }
 }
 
 
-// ======================================================
-// ===================== PROFESSOR CHASE =================
-// ======================================================
+
+// ==== PROFESSOR CHASE ====
+
 
 function updateProfessor() {
     if (!raceStarted) return;
@@ -245,6 +271,8 @@ function updateProfessor() {
         caught = true;
         timerRunning = false;
         profDirection = "success";
+        shakeTime = 10;
+        shakeStrength = 4;
 
         playlistSound.pause();
         playlistSound.currentTime = 0;
@@ -253,9 +281,9 @@ function updateProfessor() {
 }
 
 
-// ======================================================
-// ================= PROFESSOR ANIMATION =================
-// ======================================================
+
+// ==== PROFESSOR ANIMATION ====
+
 
 function updateProfessorAnimation() {
     if (profTeleportCooldown > 0) return;
@@ -269,9 +297,9 @@ function updateProfessorAnimation() {
 }
 
 
-// ======================================================
-// ===================== CHECKPOINT LOGIC ================
-// ======================================================
+
+// ==== CHECKPOINT LOGIC ====
+
 
 function updateCheckpoints() {
     if (currentCheckpoint >= checkpoints.length) return;
@@ -297,9 +325,9 @@ function updateCheckpoints() {
 }
 
 
-// ======================================================
-// ======================== TIMER ========================
-// ======================================================
+
+// ==== TIMER ====
+
 
 function updateTimer() {
     if (timerRunning && !raceComplete && !caught) {
@@ -307,33 +335,74 @@ function updateTimer() {
     }
 }
 
-
-// ======================================================
-// ===================== CAMERA FOLLOW ===================
-// ======================================================
-
-function updateCamera() {
-    camera.x = player.x - canvas.width / 2;
-    camera.y = player.y - canvas.height / 2;
+function updateOverlays() {
+    caughtOverlay = caught ? Math.min(1, caughtOverlay + 0.06) : 0;
+    finishOverlay = raceComplete ? Math.min(1, finishOverlay + 0.06) : 0;
 }
 
 
-// ======================================================
-// ======================== DRAWING ======================
-// ======================================================
+
+// ==== CAMERA FOLLOW ====
+
+
+function updateCamera() {
+    const targetX = player.x - canvas.width / 2;
+    const targetY = player.y - canvas.height / 2;
+
+    // Smooth follow instead of a hard snap
+    camera.x += (targetX - camera.x) * 0.25;
+    camera.y += (targetY - camera.y) * 0.25;
+
+    if (shakeTime > 0) {
+        shakeTime--;
+        camera.x += (Math.random() - 0.5) * shakeStrength;
+        camera.y += (Math.random() - 0.5) * shakeStrength;
+    }
+}
+
+
+
+// ==== DRAWING ====
+
 
 function drawMap() {
     ctx.drawImage(mapImg, -camera.x, -camera.y);
 }
 
 function drawPlayer() {
+    const sx = player.x - camera.x;
+    const sy = player.y - camera.y;
+
+    // Glow beneath the player
+    const bob = playerMoving ? Math.sin(clock * 0.35) * 3 : 0;
+
+    ctx.save();
+    ctx.globalAlpha = 0.3;
+    const shadowGrad = ctx.createRadialGradient(sx, sy + player.size * 0.42, 2, sx, sy + player.size * 0.42, player.size * 0.55);
+    shadowGrad.addColorStop(0, "rgba(40, 245, 255, 0.4)");
+    shadowGrad.addColorStop(1, "rgba(40, 245, 255, 0)");
+    ctx.fillStyle = shadowGrad;
+    ctx.beginPath();
+    ctx.ellipse(sx, sy + player.size * 0.42, player.size * 0.6, player.size * 0.28, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.save();
+    ctx.shadowColor = "rgba(40, 245, 255, 0.35)";
+    ctx.shadowBlur = 6;
+
+    // Flip horizontally to face movement direction
+    ctx.translate(sx, sy + bob);
+    ctx.scale(playerFacing, 1);
+
     ctx.drawImage(
         playerImg,
-        player.x - camera.x - player.size / 2,
-        player.y - camera.y - player.size / 2,
+        -player.size / 2,
+        -player.size / 2,
         player.size,
         player.size
     );
+    ctx.restore();
 }
 
 function drawProfessor() {
@@ -354,39 +423,179 @@ function drawProfessor() {
 
 function drawCheckpoints() {
     checkpoints.forEach((cp, i) => {
-        if (!cp.reached) {
-            const img = checkpointImages[i + 1]; // checkpoint # matches image #
+        if (cp.reached) return;
 
-            ctx.drawImage(
-                img,
-                cp.x - camera.x - 30,
-                cp.y - camera.y - 30,
-                60,
-                60
-            );
+        const isNext = i === currentCheckpoint;
+        const sx = cp.x - camera.x;
+        const sy = cp.y - camera.y;
+
+        const dxToPlayer = player.x - cp.x;
+        const dyToPlayer = player.y - cp.y;
+        const distToPlayer = Math.hypot(dxToPlayer, dyToPlayer);
+        const isNear = isNext && distToPlayer < 220;
+
+        const pulse = 0.5 + 0.5 * Math.sin(clock * 0.045 + i);
+        const glowColor = isNear ? CHECKPOINT_GLOW_NEAR : CHECKPOINT_GLOW;
+
+        // Pulsing outer ring (uses ring.png), speeds up and shifts color when close
+        ctx.save();
+        ctx.globalAlpha = isNext ? (0.3 + 0.15 * pulse) : 0.15;
+        const ringScale = isNext ? (1.15 + 0.1 * pulse) : 1.05;
+        const ringSize = 70 * ringScale;
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = isNext ? 12 : 5;
+        ctx.drawImage(checkpointRing, sx - ringSize / 2, sy - ringSize / 2, ringSize, ringSize);
+        ctx.restore();
+
+        // Numbered badge
+        ctx.save();
+        ctx.shadowColor = glowColor;
+        ctx.shadowBlur = isNext ? 10 : 4;
+        const badgeSize = isNext ? 58 + pulse * 2 : 54;
+        const img = checkpointImages[i + 1];
+        ctx.drawImage(img, sx - badgeSize / 2, sy - badgeSize / 2, badgeSize, badgeSize);
+        ctx.restore();
+
+        // Label of the next checkpoint 
+        if (isNext) {
+            ctx.save();
+            ctx.textAlign = "center";
+            ctx.font = "bold 18px Arial";
+            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 8;
+            ctx.fillStyle = "#eafffe";
+            ctx.fillText(cp.name, sx, sy - badgeSize / 2 - 14);
+            ctx.restore();
         }
     });
 }
 
+function drawMinimap() {
+    const miniScale = MINI_SIZE / MAP_WORLD_SIZE;
+    const mx = canvas.width - MINI_SIZE - MINI_MARGIN;
+    const my = canvas.height - MINI_SIZE - MINI_MARGIN;
+
+    ctx.save();
+
+    // Panel background 
+    ctx.fillStyle = "rgba(13, 13, 13, 0.65)";
+    ctx.strokeStyle = "rgba(40, 245, 255, 0.55)";
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, mx - 6, my - 6, MINI_SIZE + 12, MINI_SIZE + 12, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Map thumbnail 
+    ctx.save();
+    roundRect(ctx, mx, my, MINI_SIZE, MINI_SIZE, 8);
+    ctx.clip();
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(mapImg, mx, my, MINI_SIZE, MINI_SIZE);
+    ctx.globalAlpha = 1;
+
+    // Checkpoints
+    checkpoints.forEach((cp, i) => {
+        const px = mx + cp.x * miniScale;
+        const py = my + cp.y * miniScale;
+        const isNext = i === currentCheckpoint;
+
+        ctx.beginPath();
+        ctx.arc(px, py, isNext ? 4.5 : 3, 0, Math.PI * 2);
+
+        if (cp.reached) {
+            ctx.fillStyle = "rgba(234, 255, 254, 0.35)";
+        } else if (isNext) {
+            const pulse = 0.5 + 0.5 * Math.sin(clock * 0.09);
+            ctx.shadowColor = CHECKPOINT_GLOW;
+            ctx.shadowBlur = 6 + pulse * 4;
+            ctx.fillStyle = CHECKPOINT_GLOW;
+        } else {
+            ctx.fillStyle = "rgba(40, 245, 255, 0.5)";
+        }
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    });
+
+    // Camera viewport rectangle
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(
+        mx + camera.x * miniScale,
+        my + camera.y * miniScale,
+        canvas.width * miniScale,
+        canvas.height * miniScale
+    );
+
+    // Professor
+    ctx.beginPath();
+    ctx.arc(mx + professor.x * miniScale, my + professor.y * miniScale, 4, 0, Math.PI * 2);
+    ctx.shadowColor = "#ff3fb0";
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = "#ff3fb0";
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Player
+    ctx.beginPath();
+    ctx.arc(mx + player.x * miniScale, my + player.y * miniScale, 4, 0, Math.PI * 2);
+    ctx.shadowColor = "#ffffff";
+    ctx.shadowBlur = 6;
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.restore(); // clip
+    ctx.restore();
+}
+
 function drawCountdown() {
     if (!raceStarted) {
-        ctx.fillStyle = "white";
-        ctx.font = "80px Arial";
+        ctx.save();
         ctx.textAlign = "center";
-        ctx.fillText(countdown, canvas.width / 2, canvas.height / 2);
+        ctx.shadowColor = CHECKPOINT_GLOW;
+        ctx.shadowBlur = 30;
+        ctx.fillStyle = "white";
+        ctx.font = "bold 90px Arial";
+        const pop = 1 + 0.08 * Math.sin(clock * 0.3);
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.scale(pop, pop);
+        ctx.fillText(countdown, 0, 0);
+        ctx.restore();
     }
 }
 
 function drawInstructions() {
     if (!showInstructions) return;
 
+    ctx.save();
     ctx.globalAlpha = instructionOpacity;
-    ctx.fillStyle = "white";
-    ctx.font = "28px Arial";
+
+    const panelW = 460, panelH = 70;
+    ctx.fillStyle = "rgba(13, 13, 13, 0.6)";
+    ctx.strokeStyle = "rgba(40, 245, 255, 0.6)";
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, canvas.width / 2 - panelW / 2, 30, panelW, panelH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#eafffe";
+    ctx.font = "20px Arial";
     ctx.textAlign = "center";
-    ctx.fillText("Reach all checkpoints. Avoid the professor!", canvas.width / 2, 80);
-    ctx.fillText("Use WASD or Arrow Keys to move.", canvas.width / 2, 120);
-    ctx.globalAlpha = 1;
+    ctx.fillText("Reach all checkpoints. Avoid the professor!", canvas.width / 2, 60);
+    ctx.font = "16px Arial";
+    ctx.fillStyle = "rgba(234, 255, 254, 0.75)";
+    ctx.fillText("Use WASD or Arrow Keys to move.", canvas.width / 2, 85);
+    ctx.restore();
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
 }
 
 function fadeInstructions() {
@@ -397,41 +606,74 @@ function fadeInstructions() {
 }
 
 function drawTimer() {
-    ctx.fillStyle = "white";
-    ctx.font = "32px Arial";
-    ctx.fillText((timer / 60).toFixed(2), 100, 50);
+    ctx.save();
+    ctx.fillStyle = "rgba(13, 13, 13, 0.55)";
+    ctx.strokeStyle = "rgba(40, 245, 255, 0.5)";
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, 30, 20, 140, 46, 10);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.shadowColor = CHECKPOINT_GLOW;
+    ctx.shadowBlur = 10;
+    ctx.fillStyle = "#eafffe";
+    ctx.font = "bold 26px Arial";
+    ctx.textAlign = "left";
+    ctx.fillText((timer / 60).toFixed(2), 46, 51);
+    ctx.restore();
 }
 
 function drawCaught() {
-    if (caught) {
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (!caught) return;
 
-        ctx.fillStyle = "red";
-        ctx.font = "50px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("YOU WERE CAUGHT BY PROFESSOR BURCH!", canvas.width / 2, canvas.height / 2);
+    ctx.save();
+    ctx.globalAlpha = caughtOverlay;
 
-        ctx.fillStyle = "white";
-        ctx.font = "30px Arial";
-        ctx.fillText("Press R to restart", canvas.width / 2, canvas.height / 2 + 60);
-    }
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const pop = 0.9 + 0.1 * caughtOverlay;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(pop, pop);
+
+    ctx.shadowColor = "#ff3fb0";
+    ctx.shadowBlur = 25;
+    ctx.fillStyle = "#ff4d6d";
+    ctx.font = "bold 46px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("YOU WERE CAUGHT BY PROFESSOR BURCH!", 0, 0);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "26px Arial";
+    ctx.fillText("Press R to restart", 0, 55);
+    ctx.restore();
 }
 
 function drawFinish() {
-    if (raceComplete) {
-        ctx.fillStyle = "rgba(0,0,0,0.7)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (!raceComplete) return;
 
-        ctx.fillStyle = "lime";
-        ctx.font = "70px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText("FINISH!", canvas.width / 2, canvas.height / 2);
+    ctx.save();
+    ctx.globalAlpha = finishOverlay;
 
-        ctx.fillStyle = "white";
-        ctx.font = "30px Arial";
-        ctx.fillText("Press R to restart", canvas.width / 2, canvas.height / 2 + 60);
-    }
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.shadowColor = "#28f5ff";
+    ctx.shadowBlur = 30;
+    const pop = (0.85 + 0.15 * finishOverlay) * (1 + 0.05 * Math.sin(clock * 0.15));
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.scale(pop, pop);
+    ctx.fillStyle = "lime";
+    ctx.font = "bold 70px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("FINISH!", 0, 0);
+    ctx.shadowBlur = 0;
+
+    ctx.fillStyle = "rgba(255,255,255,0.85)";
+    ctx.font = "26px Arial";
+    ctx.fillText("Press R to restart", 0, 55 / pop);
+    ctx.restore();
 }
 
 function drawRedFlash() {
@@ -443,9 +685,9 @@ function drawRedFlash() {
 }
 
 
-// ======================================================
-// ======================== RESTART ======================
-// ======================================================
+
+// ==== RESTART ====
+
 
 function restartGame() {
     playlistSound.pause();
@@ -459,6 +701,8 @@ function restartGame() {
 
     player.x = 2054;
     player.y = 2550;
+    playerFacing = 1;
+    playerMoving = false;
 
     professor.x = 2326;
     professor.y = 2686;
@@ -479,6 +723,11 @@ function restartGame() {
     showInstructions = true;
     instructionOpacity = 1;
 
+    caughtOverlay = 0;
+    finishOverlay = 0;
+    shakeTime = 0;
+    shakeStrength = 0;
+
     profDirection = "idle";
     profFrame = 0;
     profTeleportCooldown = 0;
@@ -487,25 +736,27 @@ function restartGame() {
 }
 
 
-// ======================================================
-// ========================= UPDATE ======================
-// ======================================================
+
+// ==== UPDATE ====
+
 
 function update() {
+    clock++;
     updateCountdown();
     updatePlayer();
     updateProfessor();
     updateProfessorAnimation();
     updateCheckpoints();
     updateTimer();
+    updateOverlays();
     updateCamera();
     fadeInstructions();
 }
 
 
-// ======================================================
-// ========================== DRAW =======================
-// ======================================================
+
+// ==== DRAW ====
+
 
 function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -517,15 +768,16 @@ function draw() {
     drawCountdown();
     drawInstructions();
     drawTimer();
+    drawMinimap();
     drawCaught();
     drawFinish();
     drawRedFlash();
 }
 
 
-// ======================================================
-// ======================== GAME LOOP ====================
-// ======================================================
+
+// ==== GAME LOOP ====
+
 
 function gameLoop() {
     update();
